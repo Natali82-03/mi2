@@ -1,37 +1,54 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, f1_score
 import streamlit as st
 import time
+from functools import lru_cache
 
-# --- ФУНКЦИЯ ОБУЧЕНИЯ МОДЕЛИ ---
+# Кэшируем обучение модели для быстрой загрузки
 @st.cache_data
 def train_model():
-    # Загрузка ПРЕДОБРАБОТАННЫХ данных
-    df = pd.read_csv("processed_L_Score.csv")
+    # Загрузка данных
+    df = pd.read_csv("L_Score.csv")
     
-    # Разделение на признаки и целевую переменную
-    X = df.drop(columns=['L_Status'])
+    # Подготовка данных
+    categorical_features = ['P_Gender', 'P_Education', 'P_Home', 'L_Intent', 'Credit_History', 'L_Defaults']
+    numerical_features = ['P_Age', 'P_Income', 'P_Emp_Exp', 'L_Amount', 'L_Rate', 'L_Pers_Income']
+    
+    X = df[categorical_features + numerical_features]
     y = df['L_Status']
     
-    # Разделение на обучающую и тестовую выборки
+    # Препроцессинг
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', StandardScaler(), numerical_features),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
+        ])
+    
+    # Разделение на тренировочную и тестовую выборки
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42, test_size=0.2, stratify=y)
     
     # Обучение модели
-    model = XGBClassifier(random_state=42, eval_metric='logloss')
+    model = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('classifier', XGBClassifier(random_state=42, eval_metric='logloss'))
+    ])
+    
     model.fit(X_train, y_train)
     
-    # Оценка
+    # Оценка модели
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred)
     
-    return model, X.columns.tolist(), accuracy, f1
+    return model, categorical_features, numerical_features, accuracy, f1
 
-
-# --- ОСНОВНАЯ ФУНКЦИЯ ПРИЛОЖЕНИЯ ---
+# Основная функция приложения
 def main():
     # Настройки страницы
     st.set_page_config(
@@ -79,15 +96,15 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- ЗАГРУЗКА МОДЕЛИ ---
+    # Загрузка и обучение модели с индикатором прогресса
     with st.spinner('Загрузка модели... Это займет несколько секунд'):
-        model, feature_columns, accuracy, f1 = train_model()
+        model, categorical_features, numerical_features, accuracy, f1 = train_model()
 
-    # --- ИНТЕРФЕЙС ПРИЛОЖЕНИЯ ---
+    # Интерфейс приложения
     st.markdown('<p class="header-style">CreditScore PRO</p>', unsafe_allow_html=True)
     st.caption("Система кредитного скоринга для оценки заявок")
 
-    # --- ФОРМА ВВОДА ДАННЫХ КЛИЕНТА ---
+    # Форма ввода параметров
     with st.form("credit_form"):
         st.subheader("Данные клиента")
         
@@ -95,7 +112,7 @@ def main():
         cols = st.columns(2)
         
         with cols[0]:
-            # Категориальные признаки (вводятся как строки, но они будут закодированы в модели)
+            # Категориальные признаки
             input_values['P_Gender'] = st.selectbox("Пол", ['male', 'female'], key='P_Gender')
             input_values['P_Education'] = st.selectbox(
                 "Образование", 
@@ -140,16 +157,16 @@ def main():
         
         submitted = st.form_submit_button("Оценить заявку", type="primary")
 
-    # --- ОБРАБОТКА РЕЗУЛЬТАТОВ ---
+    # Обработка результатов при нажатии кнопки
     if submitted:
         try:
             # Преобразование введенных данных в DataFrame
             input_df = pd.DataFrame([input_values])
-
+            
             # Предсказание
             prediction = model.predict(input_df)[0]
-            proba = model.predict_proba(input_df)[0][1]
-
+            proba = model.predict_proba(input_df)[0][1]  # Вероятность одобрения
+            
             # Отображение результата
             st.markdown("---")
             st.subheader("Результат оценки кредитной заявки")
@@ -168,7 +185,7 @@ def main():
                 progress_bar.progress(percent_complete + 1)
             progress_bar.progress(float(proba))
             
-            # Рекомендации
+            # Дополнительная информация
             with st.expander("Рекомендации"):
                 if prediction == 0:
                     st.write("""
@@ -189,14 +206,17 @@ def main():
                     - Рассмотрите возможность досрочного погашения
                     - Проверьте все условия кредитного договора
                     """)
-
+            
         except Exception as e:
             st.error(f"Ошибка при оценке заявки: {str(e)}")
 
-    # --- БОКОВАЯ ПАНЕЛЬ С ИНФОРМАЦИЕЙ ---
+    # Боковая панель с дополнительной информацией
     with st.sidebar:
         st.header("ℹ️ О системе")
-        st.info("CreditScore PRO использует машинное обучение для оценки кредитных заявок на основе исторических данных.")
+        st.info("""
+        **CreditScore PRO** использует машинное обучение
+        для оценки кредитных заявок на основе исторических данных.
+        """)
         
         st.markdown("---")
         st.write("📊 **Метрики модели:**")
@@ -217,7 +237,5 @@ def main():
         st.write("- Достаточный опыт работы")
         st.write("- Адекватная процентная ставка")
 
-
-# --- ТОЧКА ВХОДА ---
 if __name__ == "__main__":
     main()
