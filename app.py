@@ -1,25 +1,22 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, f1_score
 import streamlit as st
 import time
-import joblib  # Для загрузки препроцессора
 
 # --- ФУНКЦИЯ ОБУЧЕНИЯ МОДЕЛИ ---
 @st.cache_data
 def train_model():
-    # Загрузка предобработанных данных
+    # Загрузка ПРЕДОБРАБОТАННЫХ данных
     df = pd.read_csv("processed_L_Score.csv")
     
+    # Разделение на признаки и целевую переменную
     X = df.drop(columns=['L_Status'])
     y = df['L_Status']
     
-    # Разделение выборки
+    # Разделение на обучающую и тестовую выборки
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42, test_size=0.2, stratify=y)
     
     # Обучение модели
@@ -82,15 +79,9 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- ЗАГРУЗКА МОДЕЛИ И ПРЕПРОЦЕССОРА ---
+    # --- ЗАГРУЗКА МОДЕЛИ ---
     with st.spinner('Загрузка модели... Это займет несколько секунд'):
         model, feature_columns, accuracy, f1 = train_model()
-
-    try:
-        preprocessor = joblib.load('preprocessor.pkl')
-    except FileNotFoundError:
-        st.error("Файл 'preprocessor.pkl' не найден. Убедитесь, что он загружен.")
-        return
 
     # --- ИНТЕРФЕЙС ПРИЛОЖЕНИЯ ---
     st.markdown('<p class="header-style">CreditScore PRO</p>', unsafe_allow_html=True)
@@ -104,7 +95,7 @@ def main():
         cols = st.columns(2)
         
         with cols[0]:
-            # Категориальные признаки
+            # Категориальные признаки (вводятся как строки, но они будут закодированы в модели)
             input_values['P_Gender'] = st.selectbox("Пол", ['male', 'female'], key='P_Gender')
             input_values['P_Education'] = st.selectbox(
                 "Образование", 
@@ -155,12 +146,9 @@ def main():
             # Преобразование введенных данных в DataFrame
             input_df = pd.DataFrame([input_values])
 
-            # Применяем препроцессор
-            input_processed = preprocessor.transform(input_df)
-
             # Предсказание
-            prediction = model.predict(input_processed)[0]
-            proba = model.predict_proba(input_processed)[0][1]
+            prediction = model.predict(input_df)[0]
+            proba = model.predict_proba(input_df)[0][1]
 
             # Отображение результата
             st.markdown("---")
